@@ -1,4 +1,4 @@
-import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../config/constants.js';
+import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES, PAGINATION } from '../config/constants.js';
 import { 
   obtenerCuenta, 
   realizarDeposito, 
@@ -102,11 +102,12 @@ export const postTransferencia = async (req, res, next) => {
 export const getHistorial = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const pagina = parseInt(req.query.pagina) || 1;
-    const limite = parseInt(req.query.limite) || 20;
-    
+    // Los validators ya convirtieron y acotaron los parámetros (.toInt(), min/máx)
+    const pagina = req.query.pagina ?? PAGINATION.DEFAULT_PAGE;
+    const limite = req.query.limite ?? PAGINATION.DEFAULT_LIMIT;
+
     const resultado = await obtenerHistorial(id, pagina, limite);
-    
+
     res.status(HTTP_STATUS.OK).json({
       success: true,
       data: resultado,

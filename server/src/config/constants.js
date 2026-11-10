@@ -77,6 +77,8 @@ export const LIMITS = {
   MIN_AMOUNT: 1, // 0.01 en céntimos
   DEFAULT_PAGE_SIZE: 20,
   MAX_PAGE_SIZE: 100,
+  MAX_REFERENCIA: 50, // longitud máxima del campo referencia
+  MAX_REFERENCIA_TRANSFERENCIA: 46, // reserva 4 caracteres para los sufijos _OUT/_IN
 };
 
 // Configuración de paginación

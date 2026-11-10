@@ -7,6 +7,7 @@ import {
   MOVEMENT_TYPES,
   CURRENCY,
   LIMITS,
+  PAGINATION,
   HTTP_STATUS,
 } from '../config/constants.js';
 import mongoose from 'mongoose';
@@ -441,8 +442,8 @@ export const realizarTransferencia = async (cuentaOrigenId, cuentaDestinoId, mon
   }
 };
 
-// Obtener historial
-export const obtenerHistorial = async (cuentaId, pagina = 1, limite = 20) => {
+// Obtener historial (solo lectura: no modifica saldos ni movimientos)
+export const obtenerHistorial = async (cuentaId, pagina = PAGINATION.DEFAULT_PAGE, limite = PAGINATION.DEFAULT_LIMIT) => {
   const cuenta = await obtenerCuenta(cuentaId);
   return Movimiento.obtenerHistorialCuenta(cuenta._id, pagina, limite);
 };

@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { CURRENCY } from '../config/constants.js';
+import { CURRENCY, MOVEMENT_TYPES, PAGINATION } from '../config/constants.js';
 
 const movimientoSchema = new mongoose.Schema({
   tipo: {
@@ -94,7 +94,7 @@ movimientoSchema.index({ referencia: 1 }, { unique: true, sparse: true });
 // Método para formatear movimiento para respuesta
 movimientoSchema.methods.toPublicJSON = function() {
   const montoEnMoneda = this.monto / Math.pow(10, CURRENCY.DECIMALS);
-  
+
   return {
     id: this._id,
     tipo: this.tipo,
@@ -106,6 +106,7 @@ movimientoSchema.methods.toPublicJSON = function() {
     cuentaOrigen: this.cuentaOrigen,
     cuentaDestino: this.cuentaDestino,
     descripcion: this.descripcion,
+    referencia: this.referencia,
     fecha: this.fecha,
     saldoAnteriorOrigen: this.saldoAnteriorOrigen,
     saldoPosteriorOrigen: this.saldoPosteriorOrigen,
@@ -115,28 +116,37 @@ movimientoSchema.methods.toPublicJSON = function() {
 };
 
 // Método estático para obtener historial paginado de una cuenta
-movimientoSchema.statics.obtenerHistorialCuenta = async function(cuentaId, pagina = 1, limite = 20) {
-  const skip = (pagina - 1) * limite;
-  
+movimientoSchema.statics.obtenerHistorialCuenta = async function(cuentaId, pagina = PAGINATION.DEFAULT_PAGE, limite = PAGINATION.DEFAULT_LIMIT) {
+  // Normalización defensiva: pagina y limite siempre enteros dentro de rango válido
+  const paginaNormalizada = Math.max(1, Math.trunc(Number(pagina) || PAGINATION.DEFAULT_PAGE));
+  const limiteNormalizado = Math.min(
+    Math.max(1, Math.trunc(Number(limite) || PAGINATION.DEFAULT_LIMIT)),
+    PAGINATION.MAX_LIMIT
+  );
+  const skip = (paginaNormalizada - 1) * limiteNormalizado;
+
+  // Cada transferencia genera dos movimientos: uno con tipo transferencia_enviada
+  // (perteneciente a la cuenta origen) y otro transferencia_recibida (perteneciente
+  // a la cuenta destino). Filtrar cada tipo por SU cuenta evita que la misma
+  // transferencia aparezca duplicada en el historial de una sola cuenta.
+  const filtro = {
+    $or: [
+      { tipo: MOVEMENT_TYPES.DEPOSITO, cuentaDestino: cuentaId },
+      { tipo: MOVEMENT_TYPES.RETIRO, cuentaOrigen: cuentaId },
+      { tipo: MOVEMENT_TYPES.TRANSFERENCIA_ENVIADA, cuentaOrigen: cuentaId },
+      { tipo: MOVEMENT_TYPES.TRANSFERENCIA_RECIBIDA, cuentaDestino: cuentaId },
+    ],
+  };
+
   const [movimientos, total] = await Promise.all([
-    this.find({
-      $or: [
-        { cuentaOrigen: cuentaId },
-        { cuentaDestino: cuentaId },
-      ],
-    })
-    .sort({ fecha: -1 })
-    .skip(skip)
-    .limit(limite)
-    .populate('cuentaOrigen', 'numeroCuenta titular')
-    .populate('cuentaDestino', 'numeroCuenta titular')
-    .lean(),
-    this.countDocuments({
-      $or: [
-        { cuentaOrigen: cuentaId },
-        { cuentaDestino: cuentaId },
-      ],
-    }),
+    this.find(filtro)
+      .sort({ fecha: -1, _id: -1 }) // _id como desempate: orden estable cuando varios movimientos comparten fecha
+      .skip(skip)
+      .limit(limiteNormalizado)
+      .populate('cuentaOrigen', 'numeroCuenta titular')
+      .populate('cuentaDestino', 'numeroCuenta titular')
+      .lean(),
+    this.countDocuments(filtro),
   ]);
 
   return {
@@ -152,11 +162,11 @@ movimientoSchema.statics.obtenerHistorialCuenta = async function(cuentaId, pagin
       } : null,
     })),
     paginacion: {
-      pagina,
-      limite,
+      pagina: paginaNormalizada,
+      limite: limiteNormalizado,
       total,
-      totalPaginas: Math.ceil(total / limite),
-      hayMas: pagina * limite < total,
+      totalPaginas: Math.ceil(total / limiteNormalizado),
+      hayMas: paginaNormalizada * limiteNormalizado < total,
     },
   };
 };

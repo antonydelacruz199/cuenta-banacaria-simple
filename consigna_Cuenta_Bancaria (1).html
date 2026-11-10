@@ -1,0 +1,298 @@
+<div style="font-family: Arial, sans-serif; color: #212322; line-height: 1.6; margin-bottom: 20px; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 20px;">
+  
+  <!-- BANNER PRINCIPAL INSTITUCIONAL -->
+  <div style="background-color: #6802c1; color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin-bottom: 30px; font-family: 'Helvetica Neue', Arial, sans-serif;">
+    <h1 style="color: #ffffff; margin: 0 0 10px 0; font-size: 26px; font-weight: bold; border-bottom: 2px solid #63AEE6; padding-bottom: 10px; text-transform: uppercase;">
+      Trabajo Práctico: Sistema de Gestión de Cuenta Bancaria Simplificada
+    </h1>
+    <p style="margin: 0; font-size: 15px; color: #f8f9fa;">
+      Asignatura: <strong>Ingeniería Web</strong> | Unidad de Desarrollo Full-Stack (Node.js + React + MongoDB)
+    </p>
+  </div>
+
+  <!-- SECCIÓN 1: DESCRIPCIÓN GENERAL -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      1. Descripción General
+    </h2>
+    <p style="margin: 0;">
+      El propósito de esta actividad es diseñar y desarrollar una aplicación web <em>Full-Stack</em> para la gestión de una cuenta bancaria simple. Los estudiantes aplicarán conceptos fundamentales de frontend con React y arquitectura backend con Node.js, Express y MongoDB de manera local.
+    </p>
+  </div>
+
+  <!-- SECCIÓN 2: ARQUITECTURA Y TECNOLOGÍAS OBLIGATORIAS -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      2. Arquitectura y Tecnologías Obligatorias
+    </h2>
+    
+    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+      <!-- Backend Card -->
+      <div style="flex: 1; min-width: 280px; background-color: #f8f9fa; border-left: 4px solid #6802c1; padding: 15px; border-radius: 4px;">
+        <h3 style="color: #0202c6; font-weight: bold; font-size: 16px; margin-top: 0; margin-bottom: 10px;">
+          Backend
+        </h3>
+        <ul style="margin: 0; padding-left: 20px;">
+          <li style="margin-bottom: 6px;"><strong>Entorno de Ejecución:</strong> Node.js</li>
+          <li style="margin-bottom: 6px;"><strong>Framework Web:</strong> Express.js</li>
+          <li style="margin-bottom: 6px;"><strong>Lenguaje:</strong> JavaScript (ES6+)</li>
+          <li style="margin-bottom: 0;"><strong>Base de Datos:</strong> MongoDB local (Mongoose o driver nativo)</li>
+        </ul>
+      </div>
+
+      <!-- Frontend Card -->
+      <div style="flex: 1; min-width: 280px; background-color: #f8f9fa; border-left: 4px solid #0202c6; padding: 15px; border-radius: 4px;">
+        <h3 style="color: #0202c6; font-weight: bold; font-size: 16px; margin-top: 0; margin-bottom: 10px;">
+          Frontend
+        </h3>
+        <ul style="margin: 0; padding-left: 20px;">
+          <li style="margin-bottom: 6px;"><strong>Framework / Bundler:</strong> React empacado con Vite</li>
+          <li style="margin-bottom: 6px;"><strong>Lenguaje y Sintaxis:</strong> JavaScript y JSX</li>
+          <li style="margin-bottom: 6px;"><strong>UI y Estado:</strong> Componentes, Props, <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px;">useState</code> y <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px;">useEffect</code></li>
+          <li style="margin-bottom: 0;"><strong>Estilos:</strong> Tailwind CSS (integrado en Vite)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECCIÓN 3: REQUERIMIENTOS FUNCIONALES -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      3. Requerimientos Funcionales
+    </h2>
+
+    <div style="display: grid; gap: 12px;">
+      <div style="background-color: #f8f9fa; padding: 12px 15px; border-radius: 5px; border-left: 3px solid #63AEE6;">
+        <strong style="color: #0202c6;">1. Consulta de Saldo:</strong>
+        <p style="margin: 4px 0 0 0;">Mostrar el saldo actual del usuario en la pantalla principal. Debe actualizarse en la interfaz inmediatamente después de concretar cualquier transacción.</p>
+      </div>
+
+      <div style="background-color: #f8f9fa; padding: 12px 15px; border-radius: 5px; border-left: 3px solid #63AEE6;">
+        <strong style="color: #0202c6;">2. Depósito de Fondos:</strong>
+        <p style="margin: 4px 0 0 0;">Permitir ingresar un monto positivo, aumentar el saldo de la cuenta y persistir la transacción en MongoDB.</p>
+      </div>
+
+      <div style="background-color: #f8f9fa; padding: 12px 15px; border-radius: 5px; border-left: 3px solid #63AEE6;">
+        <strong style="color: #0202c6;">3. Retiro de Fondos:</strong>
+        <p style="margin: 4px 0 0 0;">Permitir retirar un monto determinado validando que no supere el saldo disponible (evitar saldos negativos).</p>
+      </div>
+
+      <div style="background-color: #f8f9fa; padding: 12px 15px; border-radius: 5px; border-left: 3px solid #63AEE6;">
+        <strong style="color: #0202c6;">4. Transferencia entre Cuentas:</strong>
+        <p style="margin: 4px 0 0 0;">Permitir enviar dinero indicando cuenta destino y monto. Validar la existencia de la cuenta destino y la suficiencia de fondos en la origen. Actualizar ambos saldos atómicamente.</p>
+      </div>
+
+      <div style="background-color: #f8f9fa; padding: 12px 15px; border-radius: 5px; border-left: 3px solid #63AEE6;">
+        <strong style="color: #0202c6;">5. Historial de Movimientos:</strong>
+        <p style="margin: 4px 0 0 0;">Mostrar una lista detallada con las últimas transacciones (tipo de operación, monto, fecha y cuentas origen/destino).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECCIÓN 4: REQUERIMIENTOS TÉCNICOS Y ESTRUCTURA -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      4. Requerimientos Técnicos y Estructura del Código
+    </h2>
+
+    <h3 style="color: #0202c6; font-weight: bold; font-size: 16px; margin-top: 15px; margin-bottom: 10px;">
+      Backend (API REST)
+    </h3>
+    <p>Implementar las siguientes rutas HTTP estandarizadas en Express:</p>
+
+    <!-- BLOQUE DE CÓDIGO CONSOLA -->
+    <div style="background-color: #212322; color: #f8f9fa; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 13px; overflow-x: auto; margin-top: 10px; margin-bottom: 15px;">
+      <span style="color: #00e676;">GET</span>  <span style="color: #63aee6;">/api/cuenta/:id</span>            <span style="color: #757575;">// Obtiene saldo y datos de la cuenta</span><br>
+      <span style="color: #ffd166;">POST</span> <span style="color: #63aee6;">/api/cuenta/deposito</span>       <span style="color: #757575;">// Registra un depósito</span><br>
+      <span style="color: #ffd166;">POST</span> <span style="color: #63aee6;">/api/cuenta/retiro</span>         <span style="color: #757575;">// Registra un retiro</span><br>
+      <span style="color: #ffd166;">POST</span> <span style="color: #63aee6;">/api/cuenta/transferencia</span>  <span style="color: #757575;">// Registra la transferencia entre cuentas</span><br>
+      <span style="color: #00e676;">GET</span>  <span style="color: #63aee6;">/api/cuenta/:id/historial</span>  <span style="color: #757575;">// Obtiene el registro de transacciones</span>
+    </div>
+
+    <p style="font-size: 14px;"><strong>Manejo de Respuestas HTTP:</strong> Retornar código <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px;">400</code> para datos inválidos o saldo insuficiente, <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px;">404</code> para cuenta no encontrada y <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px;">500</code> para errores internos del servidor.</p>
+
+    <h3 style="color: #0202c6; font-weight: bold; font-size: 16px; margin-top: 20px; margin-bottom: 10px;">
+      Frontend (React + Vite)
+    </h3>
+    <ul style="margin: 0; padding-left: 20px;">
+      <li style="margin-bottom: 6px;"><strong>Componentes:</strong> Dividir la interfaz en componentes modulares (ej. <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">Navbar</code>, <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">SaldoCard</code>, <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">FormOperacion</code>, <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">HistorialTransacciones</code>).</li>
+      <li style="margin-bottom: 6px;"><strong>JSX &amp; Props:</strong> Mantener una estructura limpia de maquetado y transferir datos/callbacks entre componentes padres e hijos.</li>
+      <li style="margin-bottom: 6px;"><strong>State:</strong> Controlar los inputs de formularios y sincronización dinámica mediante <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">useState</code> y <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">useEffect</code>.</li>
+      <li style="margin-bottom: 0;"><strong>Tailwind CSS:</strong> Maquetado funcional, responsivo y moderno haciendo uso exclusivo de clases utilitarias de Tailwind.</li>
+    </ul>
+  </div>
+
+  <!-- SECCIÓN 5: ENTREGABLES -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      5. Entregables
+    </h2>
+
+    <div style="background-color: #f8f9fa; border-left: 6px solid #6802c1; padding: 15px 20px; border-radius: 4px; margin-bottom: 15px;">
+      <strong style="color: #6802c1; font-size: 15px;">1. Repositorio de Código (GitHub / GitLab):</strong>
+      <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+        <li>Estructura clara con carpetas independientes <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">/server</code> (backend) y <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">/client</code> (frontend).</li>
+        <li>Archivo <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 6px; border-radius: 4px; font-family: monospace;">README.md</code> detallando requisitos de instalación, inicio de servidores y script <em>seed</em> para inicializar la BD con cuentas de prueba.</li>
+      </ul>
+    </div>
+
+    <div style="background-color: #f8f9fa; border-left: 6px solid #0202c6; padding: 15px 20px; border-radius: 4px;">
+      <strong style="color: #0202c6; font-size: 15px;">2. Demostración Práctica:</strong>
+      <p style="margin: 5px 0 0 0;">Exposición funcional del sistema en ejecución interactuando con la base de datos local MongoDB.</p>
+    </div>
+  </div>
+
+  <!-- SECCIÓN 6: ENVÍO DEL PROYECTO (NUEVO APARTADO) -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      6. Formulario de Entrega del Repositorio
+    </h2>
+    <p style="margin-bottom: 15px;">
+      Una vez finalizado el desarrollo del proyecto y asegurada la visibilidad pública del código, deberá compartir la URL de su repositorio de GitHub a través del siguiente formulario oficial de entrega:
+    </p>
+
+    <div style="background-color: #f8f9fa; border: 1px solid #63AEE6; border-left: 6px solid #6802c1; padding: 20px; border-radius: 6px; text-align: center; margin-top: 15px; margin-bottom: 10px;">
+      <p style="margin: 0 0 15px 0; font-size: 15px; color: #212322; font-weight: bold;">
+        Registro de Entrega de Trabajo Práctico
+      </p>
+      <a href="https://forms.gle/XSWgDYb3tviYnirh7" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #6802c1; color: #ffffff; padding: 12px 24px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.15);">
+        Enviar URL del Repositorio en GitHub
+      </a>
+      <p style="margin: 12px 0 0 0; font-size: 12px; color: #6c757d;">
+        Enlace directo: <a href="https://forms.gle/XSWgDYb3tviYnirh7" target="_blank" rel="noopener noreferrer" style="color: #0202c6; word-break: break-all;">https://forms.gle/XSWgDYb3tviYnirh7</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- SECCIÓN 7: RÚBRICA DE EVALUACIÓN -->
+  <div style="background-color: #ffffff; border: 1px solid #E9ECEF; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+    <h2 style="color: #6802c1; font-size: 20px; font-weight: bold; border-bottom: 2px solid #E9ECEF; padding-bottom: 8px; margin-top: 0; margin-bottom: 15px;">
+      7. Rúbrica de Evaluación
+    </h2>
+
+    <!-- TABLA RESPONSIVA -->
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; margin-bottom: 15px;">
+        <thead>
+          <tr style="background-color: #6802c1; color: #ffffff;">
+            <th style="padding: 12px; text-align: left; font-weight: bold; border: 1px solid #E9ECEF; width: 28%;">Criterio e Indicadores Integrados</th>
+            <th style="padding: 12px; text-align: left; font-weight: bold; border: 1px solid #E9ECEF; width: 18%;">Sobresaliente (3 pts)</th>
+            <th style="padding: 12px; text-align: left; font-weight: bold; border: 1px solid #E9ECEF; width: 18%;">Suficiente (2 pts)</th>
+            <th style="padding: 12px; text-align: left; font-weight: bold; border: 1px solid #E9ECEF; width: 18%;">En desarrollo (1 pt)</th>
+            <th style="padding: 12px; text-align: left; font-weight: bold; border: 1px solid #E9ECEF; width: 18%;">Insatisfactorio (0 pts)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Fila 1 -->
+          <tr style="background-color: #ffffff;">
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              <strong>Backend &amp; API REST:</strong> Rutas Express estandarizadas para depósito, retiro, transferencia, saldo e historial; conexión y persistencia en MongoDB local; manejo de códigos de estado HTTP y validaciones de negocio.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Implementa controladores limpios, validaciones de saldo/cuentas rigurosas, manejo atómico o seguro de transacciones y conexión persistente a MongoDB local sin fallos.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Desarrolla las rutas requeridas y la conexión a MongoDB local de forma funcional, sin errores críticos de validación.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Presenta fallos de validación (permite saldos negativos), falta alguna operación básica o sufre desconexiones en la base de datos local.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              No implementa la API REST, los endpoints no responden o no integra la base de datos MongoDB local.
+            </td>
+          </tr>
+          <!-- Fila 2 -->
+          <tr style="background-color: #f8f9fa;">
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              <strong>Arquitectura Frontend (React + Vite):</strong> Configuración del proyecto mediante Vite; estructuración modular en componentes reactivos; sintaxis JSX limpia y reutilización de componentes mediante Props.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Código modular y desacoplado; excelente separación de vistas y componentes; paso de Props optimizado y sintaxis JSX libre de advertencias o errores.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Componentes organizados y funcionales; uso correcto de JSX y paso de Props fluido entre componentes sin interrumpir la aplicación.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Estructura monolítica con componentes sobrecargados; errores menores de sintaxis JSX o mal manejo en la transferencia de Props.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              No utiliza React con Vite o el proyecto no compila por errores graves de estructuración y sintaxis JSX.
+            </td>
+          </tr>
+          <!-- Fila 3 -->
+          <tr style="background-color: #ffffff;">
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              <strong>Gestión del Estado (useState &amp; useEffect):</strong> Control de estado reactivo para formularios, montos y actualización dinámica del saldo e historial tras cada transacción sin recargar la página.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Estado reactivo optimizado; integración de estados de carga/error en la UI y sincronización instantánea y fluida tras cada operación bancaria.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Maneja <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">useState</code> y <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">useEffect</code> adecuadamente; actualiza el saldo e historial tras las operaciones sin requerir refresco manual.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Gestión ineficiente del estado; requiere recarga manual de pantalla para reflejar cambios o presenta desincronización de datos.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              No utiliza Hooks para la gestión del estado o la aplicación es incapaz de reaccionar a las interacciones del usuario.
+            </td>
+          </tr>
+          <!-- Fila 4 -->
+          <tr style="background-color: #f8f9fa;">
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              <strong>Diseño y Estilos (Tailwind CSS):</strong> Maquetado exclusivo con clases utilitarias de Tailwind CSS; diseño adaptativo (responsive) e interfaz funcional e intuitiva para operaciones bancarias.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Interfaz atractiva y 100% responsiva; uso avanzado de utilidades de Tailwind con excelente retroalimentación visual (alertas/estados) para el usuario.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Interfaz limpia, accesible y adaptativa; aplica Tailwind CSS correctamente en los componentes principales de la aplicación.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Uso parcial o desordenado de Tailwind CSS; presenta problemas de maquetación en pantallas pequeñas o estilos superpuestos.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              No aplica Tailwind CSS o la interfaz gráfica es inoperable e inaccesible para el usuario.
+            </td>
+          </tr>
+          <!-- Fila 5 -->
+          <tr style="background-color: #ffffff;">
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              <strong>Documentación y Entregables:</strong> Repositorio Git estructurado en <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">/server</code> y <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">/client</code>; archivo <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">README.md</code> con instrucciones de instalación/ejecución y script <em>seed</em> para datos de prueba iniciales.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Repositorio impecable; <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">README.md</code> exhaustivo con variables de entorno explicadas y script <em>seed</em> automatizado que puebla múltiples cuentas de prueba.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Repositorio estructurado correctamente; <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">README.md</code> claro con pasos de ejecución y script <em>seed</em> funcional.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Falta el script <em>seed</em> o la documentación en el <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">README.md</code> es confusa, dificultando el despliegue local del proyecto.
+            </td>
+            <td style="padding: 10px 12px; border: 1px solid #E9ECEF; vertical-align: top;">
+              Repositorio desordenado o inexistente; sin archivo <code style="background-color: #e9ecef; color: #6802c1; padding: 2px 4px; border-radius: 3px;">README.md</code> ni instrucciones para ejecutar la solución.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="color: #0202c6; font-weight: bold; font-size: 16px; margin-top: 20px; margin-bottom: 10px;">
+      Niveles de Desempeño
+    </h3>
+    <p style="font-size: 14px;">La evaluación consta de 5 criterios ponderados con un valor máximo de 3 puntos cada uno (total de 15 puntos, escalables según la ponderación oficial):</p>
+
+    <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
+      <li style="margin-bottom: 6px;"><strong>Sobresaliente (3 puntos):</strong> El estudiante cumple todos los requisitos con excelencia y aporta mejoras adicionales o gran acabado visual y estructural.</li>
+      <li style="margin-bottom: 6px;"><strong>Suficiente (2 puntos):</strong> Cumple con lo mínimo requerido de forma totalmente funcional y sin errores críticos.</li>
+      <li style="margin-bottom: 6px;"><strong>En desarrollo (1 punto):</strong> Presenta fallos de validación, interfaz incompleta o errores de integración.</li>
+      <li style="margin-bottom: 0;"><strong>Insatisfactorio (0 puntos):</strong> No cumple la consigna, no implementa las tecnologías obligatorias o el proyecto no se ejecuta.</li>
+    </ul>
+  </div>
+
+  <!-- PIE DE PÁGINA INSTITUCIONAL -->
+  <div style="text-align: center; margin-top: 30px; padding-top: 15px; border-top: 1px solid #E9ECEF; font-size: 13px; color: #6c757d;">
+    <strong>Ingeniería Web</strong><br>Departamento de Ingeniería de Sistemas y Computación
+  </div>
+
+</div>

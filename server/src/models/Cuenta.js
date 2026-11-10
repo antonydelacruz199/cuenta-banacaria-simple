@@ -50,7 +50,6 @@ const cuentaSchema = new mongoose.Schema({
 });
 
 // Índices
-cuentaSchema.index({ numeroCuenta: 1 }, { unique: true });
 cuentaSchema.index({ titular: 1 });
 cuentaSchema.index({ activa: 1 });
 

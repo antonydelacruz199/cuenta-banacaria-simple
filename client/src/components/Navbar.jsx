@@ -21,9 +21,6 @@ export function Navbar() {
             <span className="px-3 py-1 rounded-full bg-primary-50 text-primary-700 font-medium">
               PEN
             </span>
-            <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-600">
-              Simulación Académica
-            </span>
           </div>
         </div>
       </div>

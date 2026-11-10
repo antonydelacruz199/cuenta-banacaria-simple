@@ -254,7 +254,6 @@ export function Dashboard() {
       {/* Footer */}
       <footer className="border-t border-gray-200 bg-white mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-gray-500">
-          <p>Sistema de Gestión de Cuenta Bancaria Simplificada - Simulación Académica</p>
           <p className="mt-1">Moneda: PEN (Sol Peruano) | Los saldos se manejan en céntimos para precisión</p>
         </div>
       </footer>

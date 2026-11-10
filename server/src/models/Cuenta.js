@@ -68,11 +68,17 @@ cuentaSchema.methods.getSaldoFormateado = function() {
 
 // Método para obtener datos públicos de la cuenta
 cuentaSchema.methods.toPublicJSON = function() {
+  const saldoEnMoneda = this.saldo / Math.pow(10, CURRENCY.DECIMALS);
+
   return {
     id: this._id,
     numeroCuenta: this.numeroCuenta,
     titular: this.titular,
     saldo: this.saldo,
+    saldoFormateado: `${CURRENCY.SYMBOL} ${saldoEnMoneda.toLocaleString('es-PE', {
+      minimumFractionDigits: CURRENCY.DECIMALS,
+      maximumFractionDigits: CURRENCY.DECIMALS,
+    })}`,
     moneda: this.moneda,
     activa: this.activa,
     fechaCreacion: this.fechaCreacion,
@@ -81,14 +87,15 @@ cuentaSchema.methods.toPublicJSON = function() {
 };
 
 // Método estático para buscar por ID o número de cuenta
-cuentaSchema.statics.buscarPorIdONumero = async function(identificador) {
+// Acepta un session opcional para usarse dentro de transacciones MongoDB
+cuentaSchema.statics.buscarPorIdONumero = async function(identificador, session = null) {
   // Primero intentar por ObjectId
   if (mongoose.Types.ObjectId.isValid(identificador)) {
-    const cuenta = await this.findById(identificador);
+    const cuenta = await this.findById(identificador).session(session);
     if (cuenta) return cuenta;
   }
   // Luego por número de cuenta
-  return this.findOne({ numeroCuenta: identificador.toUpperCase() });
+  return this.findOne({ numeroCuenta: String(identificador ?? '').toUpperCase() }).session(session);
 };
 
 const Cuenta = mongoose.model('Cuenta', cuentaSchema);

@@ -23,6 +23,7 @@ export const HTTP_STATUS = {
   NOT_FOUND: 404,
   INTERNAL_SERVER_ERROR: 500,
   CONFLICT: 409,
+  SERVICE_UNAVAILABLE: 503,
 };
 
 // Mensajes de error estandarizados
@@ -50,7 +51,10 @@ export const ERROR_MESSAGES = {
   // Validación
   VALIDATION_ERROR: 'Error de validación',
   MISSING_REQUIRED_FIELDS: 'Faltan campos obligatorios',
-  
+
+  // Idempotencia
+  REFERENCE_CONFLICT: 'La referencia ya fue utilizada en una operación diferente o con datos incompatibles',
+
   // Sistema
   INTERNAL_ERROR: 'Error interno del servidor',
   DATABASE_ERROR: 'Error de base de datos',

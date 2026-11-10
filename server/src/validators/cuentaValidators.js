@@ -189,15 +189,11 @@ export const validateTransferencia = [
     .optional()
     .isString()
     .withMessage('La referencia debe ser texto')
-    .isLength({ max: 50 })
-    .withMessage('La referencia no puede exceder 50 caracteres'),
-  // Validación personalizada: origen y destino no pueden ser iguales
-  body('cuentaDestinoId').custom((value, { req }) => {
-    if (value === req.body.cuentaOrigenId) {
-      throw new Error(ERROR_MESSAGES.SAME_ACCOUNT_TRANSFER);
-    }
-    return true;
-  }),
+    .isLength({ max: 46 })
+    .withMessage('La referencia no puede exceder 46 caracteres (se reservan 4 para los sufijos _OUT/_IN de transferencia)'),
+  // La regla "origen y destino no pueden ser la misma cuenta" se aplica en el servicio:
+  // allí se comparan los _id resueltos (ObjectId o número de cuenta) y se responde
+  // con el código SAME_ACCOUNT_TRANSFER coherente con el contrato de errores.
   handleValidationErrors,
 ];
 

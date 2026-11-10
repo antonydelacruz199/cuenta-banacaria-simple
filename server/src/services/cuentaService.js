@@ -1,8 +1,17 @@
 import Cuenta from '../models/Cuenta.js';
 import Movimiento from '../models/Movimiento.js';
 import { areTransactionsSupported } from '../config/database.js';
-import { ERROR_MESSAGES, SUCCESS_MESSAGES, MOVEMENT_TYPES, CURRENCY } from '../config/constants.js';
+import {
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+  MOVEMENT_TYPES,
+  CURRENCY,
+  LIMITS,
+  HTTP_STATUS,
+} from '../config/constants.js';
 import mongoose from 'mongoose';
+
+const MENSAJE_IDEMPOTENTE = 'Operación ya procesada (idempotente)';
 
 // Generar referencia única para idempotencia
 const generarReferencia = (prefijo) => {
@@ -11,317 +20,422 @@ const generarReferencia = (prefijo) => {
   return `${prefijo}_${timestamp}_${random}`.toUpperCase();
 };
 
+// Crear un error con estado HTTP, código y detalles opcionales
+const lanzarError = (statusCode, code, message, details = undefined) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  if (details !== undefined) error.details = details;
+  return error;
+};
+
+const idsIguales = (a, b) => String(a) === String(b);
+
+// Normalizar la referencia enviada por el cliente (trim) o generar una nueva
+const normalizarReferencia = (referencia, prefijo) => {
+  const limpio = referencia ? String(referencia).trim() : '';
+  return limpio || generarReferencia(prefijo);
+};
+
+// Buscar movimientos por referencia de operación, incluyendo las variantes _OUT/_IN
+// que se almacenan para transferencias
+const buscarMovimientosPorReferencia = (ref) => {
+  return Movimiento.find({
+    referencia: { $in: [ref, `${ref}_OUT`, `${ref}_IN`] },
+  })
+    .sort({ fecha: 1 })
+    .limit(2);
+};
+
+// Validación de monto a nivel de servicio (defensa adicional a los validators HTTP)
+const validarMontoInterno = (monto) => {
+  if (typeof monto !== 'number' || !Number.isFinite(monto) || !Number.isInteger(monto)) {
+    throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'INVALID_AMOUNT', ERROR_MESSAGES.INVALID_AMOUNT);
+  }
+  if (monto < LIMITS.MIN_AMOUNT) {
+    throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'INVALID_AMOUNT', ERROR_MESSAGES.AMOUNT_MUST_BE_POSITIVE);
+  }
+  if (monto > LIMITS.MAX_AMOUNT) {
+    throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'AMOUNT_EXCEEDS_MAX', ERROR_MESSAGES.AMOUNT_EXCEEDS_MAX);
+  }
+};
+
+// Las operaciones monetarias requieren transacciones (replica set rs0).
+// Sin transacciones no se permite modificar el saldo: no hay camino no atómico.
+const asegurarTransacciones = async () => {
+  const soportadas = await areTransactionsSupported();
+  if (!soportadas) {
+    throw lanzarError(
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      'TRANSACTIONS_NOT_SUPPORTED',
+      ERROR_MESSAGES.TRANSACTIONS_NOT_SUPPORTED
+    );
+  }
+};
+
+const errorConflictoReferencia = () => lanzarError(
+  HTTP_STATUS.CONFLICT,
+  'REFERENCE_CONFLICT',
+  ERROR_MESSAGES.REFERENCE_CONFLICT
+);
+
+// Detectar E11000 (índice único) sobre el campo referencia de Movimiento.
+// La garantía final de idempotencia ante solicitudes simultáneas es el índice único:
+// si una segunda transacción pierde la carrera, aborta con E11000 y se responde de forma idempotente.
+const esDuplicadoReferencia = (err) => {
+  if (!err) return false;
+  const writeError = Array.isArray(err.writeErrors) ? err.writeErrors[0] : null;
+  if (err.code === 11000 && err.keyPattern && 'referencia' in err.keyPattern) return true;
+  if (writeError && writeError.code === 11000 && writeError.keyPattern && 'referencia' in writeError.keyPattern) return true;
+  return err.code === 11000 && String(err.message || '').includes('referencia');
+};
+
+const respuestaIdempotente = (cuenta, movimiento) => ({
+  cuenta: cuenta.toPublicJSON(),
+  movimiento: movimiento.toPublicJSON(),
+  mensaje: MENSAJE_IDEMPOTENTE,
+  idempotente: true,
+});
+
+// Verificar que un movimiento existente corresponda exactamente a la operación
+// que se intenta reenviar con la misma referencia (misma operación, monto y cuentas)
+const esCompatibleDeposito = (mov, monto, cuentaId) =>
+  mov.tipo === MOVEMENT_TYPES.DEPOSITO &&
+  mov.monto === monto &&
+  idsIguales(mov.cuentaDestino, cuentaId);
+
+const esCompatibleRetiro = (mov, monto, cuentaId) =>
+  mov.tipo === MOVEMENT_TYPES.RETIRO &&
+  mov.monto === monto &&
+  idsIguales(mov.cuentaOrigen, cuentaId);
+
+// Verificar que los movimientos _OUT/_IN encontrados correspondan a la transferencia
+// reenviada (mismo monto, origen y destino, aunque cambie el formato del identificador)
+const verificarCompatibilidadTransferencia = async (existentes, ref, monto, cuentaOrigenId, cuentaDestinoId) => {
+  const origen = await Cuenta.buscarPorIdONumero(cuentaOrigenId);
+  if (!origen) {
+    throw lanzarError(HTTP_STATUS.NOT_FOUND, 'ORIGIN_ACCOUNT_NOT_FOUND', ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
+  }
+  const destino = await Cuenta.buscarPorIdONumero(cuentaDestinoId);
+  if (!destino) {
+    throw lanzarError(HTTP_STATUS.NOT_FOUND, 'DESTINATION_ACCOUNT_NOT_FOUND', ERROR_MESSAGES.DESTINATION_ACCOUNT_NOT_FOUND);
+  }
+
+  const movEnviado = existentes.find(m => m.tipo === MOVEMENT_TYPES.TRANSFERENCIA_ENVIADA && m.referencia === `${ref}_OUT`);
+  const movRecibido = existentes.find(m => m.tipo === MOVEMENT_TYPES.TRANSFERENCIA_RECIBIDA && m.referencia === `${ref}_IN`);
+
+  const compatible =
+    !!movEnviado &&
+    !!movRecibido &&
+    movEnviado.monto === monto &&
+    movRecibido.monto === monto &&
+    idsIguales(movEnviado.cuentaOrigen, origen._id) &&
+    idsIguales(movEnviado.cuentaDestino, destino._id) &&
+    idsIguales(movRecibido.cuentaOrigen, origen._id) &&
+    idsIguales(movRecibido.cuentaDestino, destino._id);
+
+  if (!compatible) throw errorConflictoReferencia();
+
+  // Estado actual de ambas cuentas (solo lectura, fuera de la transacción)
+  const origenActual = await Cuenta.findById(origen._id);
+  const destinoActual = await Cuenta.findById(destino._id);
+
+  return {
+    cuentaOrigen: origenActual.toPublicJSON(),
+    cuentaDestino: destinoActual.toPublicJSON(),
+    movimientoEnviado: movEnviado.toPublicJSON(),
+    movimientoRecibido: movRecibido.toPublicJSON(),
+    mensaje: MENSAJE_IDEMPOTENTE,
+    idempotente: true,
+  };
+};
+
 // Obtener cuenta por ID o número de cuenta
 export const obtenerCuenta = async (identificador) => {
   const cuenta = await Cuenta.buscarPorIdONumero(identificador);
   if (!cuenta) {
-    const error = new Error(ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
-    error.statusCode = 404;
-    error.code = 'ACCOUNT_NOT_FOUND';
-    throw error;
+    throw lanzarError(HTTP_STATUS.NOT_FOUND, 'ACCOUNT_NOT_FOUND', ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
   }
   if (!cuenta.activa) {
-    const error = new Error('La cuenta está inactiva');
-    error.statusCode = 400;
-    error.code = 'ACCOUNT_INACTIVE';
-    throw error;
+    throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'ACCOUNT_INACTIVE', 'La cuenta está inactiva');
   }
   return cuenta;
 };
 
 // Depósito
 export const realizarDeposito = async (cuentaId, monto, descripcion = '', referencia = null) => {
+  validarMontoInterno(monto);
   const cuenta = await obtenerCuenta(cuentaId);
-  const ref = referencia || generarReferencia('DEP');
-  
-  // Verificar idempotencia
-  const movimientoExistente = await Movimiento.findOne({ referencia: ref });
-  if (movimientoExistente) {
-    return {
-      cuenta: cuenta.toPublicJSON(),
-      movimiento: movimientoExistente.toPublicJSON(),
-      mensaje: 'Operación ya procesada (idempotente)',
-      idempotente: true,
-    };
+  const ref = normalizarReferencia(referencia, 'DEP');
+
+  // Búsqueda previa por referencia (camino rápido; la garantía ante concurrencia es el índice único)
+  const existentes = await buscarMovimientosPorReferencia(ref);
+  if (existentes.length > 0) {
+    const mov = existentes[0];
+    if (!esCompatibleDeposito(mov, monto, cuenta._id)) throw errorConflictoReferencia();
+    return respuestaIdempotente(cuenta, mov);
   }
 
-  const saldoAnterior = cuenta.saldo;
-  const saldoNuevo = saldoAnterior + monto;
-  
-  // Actualizar cuenta y crear movimiento en transacción si está disponible
-  const transactionsSupported = await areTransactionsSupported();
-  
-  if (transactionsSupported) {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        cuenta.saldo = saldoNuevo;
-        await cuenta.save({ session });
-        
-        const movimiento = new Movimiento({
-          tipo: MOVEMENT_TYPES.DEPOSITO,
-          monto,
-          cuentaDestino: cuenta._id,
-          descripcion: descripcion || 'Depósito en cuenta',
-          referencia: ref,
-          saldoAnteriorDestino: saldoAnterior,
-          saldoPosteriorDestino: saldoNuevo,
-        });
-        await movimiento.save({ session });
-      });
-      
-      return {
-        cuenta: cuenta.toPublicJSON(),
-        movimiento: (await Movimiento.findOne({ referencia: ref })).toPublicJSON(),
-        mensaje: SUCCESS_MESSAGES.DEPOSIT_SUCCESS,
-        idempotente: false,
-      };
-    } finally {
-      await session.endSession();
-    }
-  } else {
-    // Sin transacciones: operaciones secuenciales con verificación
-    cuenta.saldo = saldoNuevo;
-    await cuenta.save();
-    
-    const movimiento = new Movimiento({
-      tipo: MOVEMENT_TYPES.DEPOSITO,
-      monto,
-      cuentaDestino: cuenta._id,
-      descripcion: descripcion || 'Depósito en cuenta',
-      referencia: ref,
-      saldoAnteriorDestino: saldoAnterior,
-      saldoPosteriorDestino: saldoNuevo,
+  await asegurarTransacciones();
+
+  const session = await mongoose.startSession();
+  try {
+    const resultado = await session.withTransaction(async () => {
+      // $inc es aditivo y atómico: nunca sobrescribe el saldo con un valor absoluto leído previamente
+      const cuentaActualizada = await Cuenta.findOneAndUpdate(
+        { _id: cuenta._id },
+        { $inc: { saldo: monto } },
+        { session, returnDocument: 'after' }
+      );
+      if (!cuentaActualizada) {
+        throw lanzarError(HTTP_STATUS.NOT_FOUND, 'ACCOUNT_NOT_FOUND', ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
+      }
+
+      const saldoPosterior = cuentaActualizada.saldo;
+      const saldoAnterior = saldoPosterior - monto;
+
+      const movimientos = await Movimiento.create([{
+        tipo: MOVEMENT_TYPES.DEPOSITO,
+        monto,
+        cuentaDestino: cuenta._id,
+        descripcion: descripcion || 'Depósito en cuenta',
+        referencia: ref,
+        saldoAnteriorDestino: saldoAnterior,
+        saldoPosteriorDestino: saldoPosterior,
+      }], { session });
+
+      return { cuenta: cuentaActualizada, movimiento: movimientos[0] };
     });
-    await movimiento.save();
-    
+
     return {
-      cuenta: cuenta.toPublicJSON(),
-      movimiento: movimiento.toPublicJSON(),
+      cuenta: resultado.cuenta.toPublicJSON(),
+      movimiento: resultado.movimiento.toPublicJSON(),
       mensaje: SUCCESS_MESSAGES.DEPOSIT_SUCCESS,
       idempotente: false,
-      advertencia: 'Transacción no atómica (replica set no configurado)',
     };
+  } catch (err) {
+    // Otra solicitud simultánea con la misma referencia ganó la carrera: la transacción
+    // abortó por el índice único y ningún cambio quedó aplicado en esta
+    if (esDuplicadoReferencia(err)) {
+      const repetidos = await buscarMovimientosPorReferencia(ref);
+      const mov = repetidos[0];
+      if (mov) {
+        if (!esCompatibleDeposito(mov, monto, cuenta._id)) throw errorConflictoReferencia();
+        return respuestaIdempotente(cuenta, mov);
+      }
+    }
+    throw err;
+  } finally {
+    await session.endSession();
   }
 };
 
 // Retiro
 export const realizarRetiro = async (cuentaId, monto, descripcion = '', referencia = null) => {
+  validarMontoInterno(monto);
   const cuenta = await obtenerCuenta(cuentaId);
-  const ref = referencia || generarReferencia('RET');
-  
-  // Verificar idempotencia
-  const movimientoExistente = await Movimiento.findOne({ referencia: ref });
-  if (movimientoExistente) {
-    return {
-      cuenta: cuenta.toPublicJSON(),
-      movimiento: movimientoExistente.toPublicJSON(),
-      mensaje: 'Operación ya procesada (idempotente)',
-      idempotente: true,
-    };
+  const ref = normalizarReferencia(referencia, 'RET');
+
+  // Búsqueda previa por referencia (camino rápido; la garantía ante concurrencia es el índice único)
+  const existentes = await buscarMovimientosPorReferencia(ref);
+  if (existentes.length > 0) {
+    const mov = existentes[0];
+    if (!esCompatibleRetiro(mov, monto, cuenta._id)) throw errorConflictoReferencia();
+    return respuestaIdempotente(cuenta, mov);
   }
 
-  // Validar fondos suficientes
-  if (cuenta.saldo < monto) {
-    const error = new Error(ERROR_MESSAGES.INSUFFICIENT_FUNDS);
-    error.statusCode = 400;
-    error.code = 'INSUFFICIENT_FUNDS';
-    error.details = {
-      saldoActual: cuenta.saldo,
-      montoSolicitado: monto,
-      faltante: monto - cuenta.saldo,
-    };
-    throw error;
-  }
+  await asegurarTransacciones();
 
-  const saldoAnterior = cuenta.saldo;
-  const saldoNuevo = saldoAnterior - monto;
-  
-  const transactionsSupported = await areTransactionsSupported();
-  
-  if (transactionsSupported) {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        cuenta.saldo = saldoNuevo;
-        await cuenta.save({ session });
-        
-        const movimiento = new Movimiento({
-          tipo: MOVEMENT_TYPES.RETIRO,
-          monto,
-          cuentaOrigen: cuenta._id,
-          descripcion: descripcion || 'Retiro de cuenta',
-          referencia: ref,
-          saldoAnteriorOrigen: saldoAnterior,
-          saldoPosteriorOrigen: saldoNuevo,
+  const session = await mongoose.startSession();
+  try {
+    const resultado = await session.withTransaction(async () => {
+      // Actualización condicional atómica: el descuento solo aplica si el saldo actual
+      // cubre el monto. Dos retiros concurrentes no pueden consumir el mismo saldo:
+      // el filtro se evalúa sobre el valor vigente en el momento de la escritura.
+      const cuentaActualizada = await Cuenta.findOneAndUpdate(
+        { _id: cuenta._id, saldo: { $gte: monto } },
+        { $inc: { saldo: -monto } },
+        { session, returnDocument: 'after' }
+      );
+
+      if (!cuentaActualizada) {
+        // Releer dentro de la transacción para informar el saldo real vigente
+        const cuentaReleida = await Cuenta.findById(cuenta._id).session(session);
+        if (!cuentaReleida) {
+          throw lanzarError(HTTP_STATUS.NOT_FOUND, 'ACCOUNT_NOT_FOUND', ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
+        }
+        throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'INSUFFICIENT_FUNDS', ERROR_MESSAGES.INSUFFICIENT_FUNDS, {
+          saldoActual: cuentaReleida.saldo,
+          montoSolicitado: monto,
+          faltante: monto - cuentaReleida.saldo,
         });
-        await movimiento.save({ session });
-      });
-      
-      return {
-        cuenta: cuenta.toPublicJSON(),
-        movimiento: (await Movimiento.findOne({ referencia: ref })).toPublicJSON(),
-        mensaje: SUCCESS_MESSAGES.WITHDRAWAL_SUCCESS,
-        idempotente: false,
-      };
-    } finally {
-      await session.endSession();
-    }
-  } else {
-    cuenta.saldo = saldoNuevo;
-    await cuenta.save();
-    
-    const movimiento = new Movimiento({
-      tipo: MOVEMENT_TYPES.RETIRO,
-      monto,
-      cuentaOrigen: cuenta._id,
-      descripcion: descripcion || 'Retiro de cuenta',
-      referencia: ref,
-      saldoAnteriorOrigen: saldoAnterior,
-      saldoPosteriorOrigen: saldoNuevo,
+      }
+
+      const saldoPosterior = cuentaActualizada.saldo;
+      const saldoAnterior = saldoPosterior + monto;
+
+      const movimientos = await Movimiento.create([{
+        tipo: MOVEMENT_TYPES.RETIRO,
+        monto,
+        cuentaOrigen: cuenta._id,
+        descripcion: descripcion || 'Retiro de cuenta',
+        referencia: ref,
+        saldoAnteriorOrigen: saldoAnterior,
+        saldoPosteriorOrigen: saldoPosterior,
+      }], { session });
+
+      return { cuenta: cuentaActualizada, movimiento: movimientos[0] };
     });
-    await movimiento.save();
-    
+
     return {
-      cuenta: cuenta.toPublicJSON(),
-      movimiento: movimiento.toPublicJSON(),
+      cuenta: resultado.cuenta.toPublicJSON(),
+      movimiento: resultado.movimiento.toPublicJSON(),
       mensaje: SUCCESS_MESSAGES.WITHDRAWAL_SUCCESS,
       idempotente: false,
-      advertencia: 'Transacción no atómica (replica set no configurado)',
     };
+  } catch (err) {
+    if (esDuplicadoReferencia(err)) {
+      const repetidos = await buscarMovimientosPorReferencia(ref);
+      const mov = repetidos[0];
+      if (mov) {
+        if (!esCompatibleRetiro(mov, monto, cuenta._id)) throw errorConflictoReferencia();
+        return respuestaIdempotente(cuenta, mov);
+      }
+    }
+    throw err;
+  } finally {
+    await session.endSession();
   }
 };
 
 // Transferencia
 export const realizarTransferencia = async (cuentaOrigenId, cuentaDestinoId, monto, descripcion = '', referencia = null) => {
-  // Validar que no sea la misma cuenta
-  if (cuentaOrigenId === cuentaDestinoId) {
-    const error = new Error(ERROR_MESSAGES.SAME_ACCOUNT_TRANSFER);
-    error.statusCode = 400;
-    error.code = 'SAME_ACCOUNT_TRANSFER';
-    throw error;
+  validarMontoInterno(monto);
+
+  // Rechazo rápido si los identificadores crudos son idénticos.
+  // La comparación definitiva se hace sobre los _id resueltos dentro de la transacción,
+  // por lo que también se rechaza la misma cuenta referida por ObjectId y número de cuenta.
+  if (String(cuentaOrigenId).trim().toUpperCase() === String(cuentaDestinoId).trim().toUpperCase()) {
+    throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'SAME_ACCOUNT_TRANSFER', ERROR_MESSAGES.SAME_ACCOUNT_TRANSFER);
   }
 
-  const ref = referencia || generarReferencia('TRF');
-  
-  // Verificar idempotencia
-  const movimientoExistente = await Movimiento.findOne({ referencia: ref });
-  if (movimientoExistente) {
-    const cuentaOrigen = await Cuenta.findById(movimientoExistente.cuentaOrigen);
-    return {
-      cuentaOrigen: cuentaOrigen.toPublicJSON(),
-      movimiento: movimientoExistente.toPublicJSON(),
-      mensaje: 'Operación ya procesada (idempotente)',
-      idempotente: true,
-    };
+  const ref = normalizarReferencia(referencia, 'TRF');
+
+  // Búsqueda previa por referencia, incluyendo las variantes _OUT/_IN almacenadas.
+  // Esto corrige la inconsistencia original: la transferencia guardaba referencias con
+  // sufijo pero la repetición buscaba la referencia sin sufijo y volvía a ejecutarse.
+  const existentes = await buscarMovimientosPorReferencia(ref);
+  if (existentes.length > 0) {
+    return verificarCompatibilidadTransferencia(existentes, ref, monto, cuentaOrigenId, cuentaDestinoId);
   }
 
-  const transactionsSupported = await areTransactionsSupported();
-  
-  if (!transactionsSupported) {
-    const error = new Error(ERROR_MESSAGES.TRANSACTIONS_NOT_SUPPORTED);
-    error.statusCode = 500;
-    error.code = 'TRANSACTIONS_NOT_SUPPORTED';
-    throw error;
-  }
+  await asegurarTransacciones();
 
   const session = await mongoose.startSession();
-  
   try {
     const resultado = await session.withTransaction(async () => {
-      // Obtener ambas cuentas dentro de la transacción
-      const [cuentaOrigen, cuentaDestino] = await Promise.all([
-        Cuenta.findById(cuentaOrigenId).session(session),
-        Cuenta.findById(cuentaDestinoId).session(session),
-      ]);
-      
+      // Resolver ambas cuentas dentro de la transacción (secuencial, sin Promise.all:
+      // las operaciones en paralelo no están permitidas dentro de una sesión transaccional)
+      const cuentaOrigen = await Cuenta.buscarPorIdONumero(cuentaOrigenId, session);
       if (!cuentaOrigen) {
-        const error = new Error(ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
-        error.statusCode = 404;
-        error.code = 'ORIGIN_ACCOUNT_NOT_FOUND';
-        throw error;
+        throw lanzarError(HTTP_STATUS.NOT_FOUND, 'ORIGIN_ACCOUNT_NOT_FOUND', ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
       }
+
+      const cuentaDestino = await Cuenta.buscarPorIdONumero(cuentaDestinoId, session);
       if (!cuentaDestino) {
-        const error = new Error(ERROR_MESSAGES.DESTINATION_ACCOUNT_NOT_FOUND);
-        error.statusCode = 404;
-        error.code = 'DESTINATION_ACCOUNT_NOT_FOUND';
-        throw error;
+        throw lanzarError(HTTP_STATUS.NOT_FOUND, 'DESTINATION_ACCOUNT_NOT_FOUND', ERROR_MESSAGES.DESTINATION_ACCOUNT_NOT_FOUND);
       }
+
+      // Misma cuenta aunque los identificadores sean distintos (ObjectId vs número de cuenta)
+      if (idsIguales(cuentaOrigen._id, cuentaDestino._id)) {
+        throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'SAME_ACCOUNT_TRANSFER', ERROR_MESSAGES.SAME_ACCOUNT_TRANSFER);
+      }
+
       if (!cuentaOrigen.activa || !cuentaDestino.activa) {
-        const error = new Error('Una de las cuentas está inactiva');
-        error.statusCode = 400;
-        error.code = 'ACCOUNT_INACTIVE';
-        throw error;
+        throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'ACCOUNT_INACTIVE', 'Una de las cuentas está inactiva');
       }
-      
-      // Validar fondos suficientes en origen
-      if (cuentaOrigen.saldo < monto) {
-        const error = new Error(ERROR_MESSAGES.INSUFFICIENT_FUNDS);
-        error.statusCode = 400;
-        error.code = 'INSUFFICIENT_FUNDS';
-        error.details = {
-          saldoActual: cuentaOrigen.saldo,
+
+      // Débito condicional atómico sobre el saldo vigente: si otro retiro simultáneo
+      // consumió el saldo, el filtro ya no coincide y la actualización no aplica
+      const origenActualizada = await Cuenta.findOneAndUpdate(
+        { _id: cuentaOrigen._id, saldo: { $gte: monto } },
+        { $inc: { saldo: -monto } },
+        { session, returnDocument: 'after' }
+      );
+
+      if (!origenActualizada) {
+        const cuentaReleida = await Cuenta.findById(cuentaOrigen._id).session(session);
+        throw lanzarError(HTTP_STATUS.BAD_REQUEST, 'INSUFFICIENT_FUNDS', ERROR_MESSAGES.INSUFFICIENT_FUNDS, {
+          saldoActual: cuentaReleida ? cuentaReleida.saldo : 0,
           montoSolicitado: monto,
-          faltante: monto - cuentaOrigen.saldo,
-        };
-        throw error;
+          faltante: monto - (cuentaReleida ? cuentaReleida.saldo : 0),
+        });
       }
-      
-      const saldoAnteriorOrigen = cuentaOrigen.saldo;
-      const saldoAnteriorDestino = cuentaDestino.saldo;
-      const saldoNuevoOrigen = saldoAnteriorOrigen - monto;
-      const saldoNuevoDestino = saldoAnteriorDestino + monto;
-      
-      // Actualizar saldos
-      cuentaOrigen.saldo = saldoNuevoOrigen;
-      cuentaDestino.saldo = saldoNuevoDestino;
-      
-      await Promise.all([
-        cuentaOrigen.save({ session }),
-        cuentaDestino.save({ session }),
-      ]);
-      
-      // Crear dos movimientos: uno de salida, uno de entrada
-      const [movimientoEnviado, movimientoRecibido] = await Promise.all([
-        Movimiento.create([{
-          tipo: MOVEMENT_TYPES.TRANSFERENCIA_ENVIADA,
-          monto,
-          cuentaOrigen: cuentaOrigen._id,
-          cuentaDestino: cuentaDestino._id,
-          descripcion: descripcion || `Transferencia a ${cuentaDestino.numeroCuenta}`,
-          referencia: `${ref}_OUT`,
-          saldoAnteriorOrigen,
-          saldoPosteriorOrigen: saldoNuevoOrigen,
-          saldoAnteriorDestino,
-          saldoPosteriorDestino: saldoNuevoDestino,
-        }], { session }),
-        Movimiento.create([{
-          tipo: MOVEMENT_TYPES.TRANSFERENCIA_RECIBIDA,
-          monto,
-          cuentaOrigen: cuentaOrigen._id,
-          cuentaDestino: cuentaDestino._id,
-          descripcion: descripcion || `Transferencia de ${cuentaOrigen.numeroCuenta}`,
-          referencia: `${ref}_IN`,
-          saldoAnteriorOrigen,
-          saldoPosteriorOrigen: saldoNuevoOrigen,
-          saldoAnteriorDestino,
-          saldoPosteriorDestino: saldoNuevoDestino,
-        }], { session }),
-      ]);
-      
+
+      const destinoActualizada = await Cuenta.findOneAndUpdate(
+        { _id: cuentaDestino._id },
+        { $inc: { saldo: monto } },
+        { session, returnDocument: 'after' }
+      );
+
+      const saldoPosteriorOrigen = origenActualizada.saldo;
+      const saldoAnteriorOrigen = saldoPosteriorOrigen + monto;
+      const saldoPosteriorDestino = destinoActualizada.saldo;
+      const saldoAnteriorDestino = saldoPosteriorDestino - monto;
+
+      // Movimientos de salida y entrada, secuencialmente dentro de la misma transacción
+      const movimientosEnviados = await Movimiento.create([{
+        tipo: MOVEMENT_TYPES.TRANSFERENCIA_ENVIADA,
+        monto,
+        cuentaOrigen: cuentaOrigen._id,
+        cuentaDestino: cuentaDestino._id,
+        descripcion: descripcion || `Transferencia a ${cuentaDestino.numeroCuenta}`,
+        referencia: `${ref}_OUT`,
+        saldoAnteriorOrigen,
+        saldoPosteriorOrigen,
+        saldoAnteriorDestino,
+        saldoPosteriorDestino,
+      }], { session });
+
+      const movimientosRecibidos = await Movimiento.create([{
+        tipo: MOVEMENT_TYPES.TRANSFERENCIA_RECIBIDA,
+        monto,
+        cuentaOrigen: cuentaOrigen._id,
+        cuentaDestino: cuentaDestino._id,
+        descripcion: descripcion || `Transferencia de ${cuentaOrigen.numeroCuenta}`,
+        referencia: `${ref}_IN`,
+        saldoAnteriorOrigen,
+        saldoPosteriorOrigen,
+        saldoAnteriorDestino,
+        saldoPosteriorDestino,
+      }], { session });
+
       return {
-        cuentaOrigen: cuentaOrigen.toPublicJSON(),
-        cuentaDestino: cuentaDestino.toPublicJSON(),
-        movimientoEnviado: movimientoEnviado[0].toPublicJSON(),
-        movimientoRecibido: movimientoRecibido[0].toPublicJSON(),
-        mensaje: SUCCESS_MESSAGES.TRANSFER_SUCCESS,
+        cuentaOrigen: origenActualizada,
+        cuentaDestino: destinoActualizada,
+        movimientoEnviado: movimientosEnviados[0],
+        movimientoRecibido: movimientosRecibidos[0],
       };
     });
-    
+
     return {
-      ...resultado,
+      cuentaOrigen: resultado.cuentaOrigen.toPublicJSON(),
+      cuentaDestino: resultado.cuentaDestino.toPublicJSON(),
+      movimientoEnviado: resultado.movimientoEnviado.toPublicJSON(),
+      movimientoRecibido: resultado.movimientoRecibido.toPublicJSON(),
+      mensaje: SUCCESS_MESSAGES.TRANSFER_SUCCESS,
       idempotente: false,
     };
+  } catch (err) {
+    if (esDuplicadoReferencia(err)) {
+      // Otra solicitud simultánea con la misma referencia completó primero:
+      // responder de forma idempotente o conflictuar según compatibilidad
+      const repetidos = await buscarMovimientosPorReferencia(ref);
+      if (repetidos.length > 0) {
+        return verificarCompatibilidadTransferencia(repetidos, ref, monto, cuentaOrigenId, cuentaDestinoId);
+      }
+    }
+    throw err;
   } finally {
     await session.endSession();
   }
@@ -336,7 +450,7 @@ export const obtenerHistorial = async (cuentaId, pagina = 1, limite = 20) => {
 // Formatear respuesta de cuenta con saldo formateado
 export const formatearRespuestaCuenta = (cuenta) => {
   const saldoEnMoneda = cuenta.saldo / Math.pow(10, CURRENCY.DECIMALS);
-  
+
   return {
     id: cuenta._id,
     numeroCuenta: cuenta.numeroCuenta,

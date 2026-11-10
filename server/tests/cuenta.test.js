@@ -5,7 +5,7 @@ import { connectDB, disconnectDB, areTransactionsSupported } from '../src/config
 import Cuenta from '../src/models/Cuenta.js';
 import Movimiento from '../src/models/Movimiento.js';
 import { CURRENCY, HTTP_STATUS, ERROR_MESSAGES, MOVEMENT_TYPES } from '../src/config/constants.js';
-import { describe, test, beforeAll, afterAll, beforeEach, expect } from '@jest/globals';
+import { describe, test, beforeAll, afterAll, beforeEach, expect, jest } from '@jest/globals';
 
 const formatearMoneda = (centimos) => {
   const valor = centimos / Math.pow(10, CURRENCY.DECIMALS);
@@ -681,6 +681,493 @@ describe('API Cuenta Bancaria', () => {
       const totalFinal = cuentasFinales.reduce((sum, c) => sum + c.saldo, 0);
 
       expect(totalFinal).toBe(totalInicial);
+    });
+  });
+
+  describe('Procesamiento monetario (integración)', () => {
+    test('Depósito del monto mínimo (1 céntimo) actualiza el saldo exactamente', async () => {
+      const response = await request(app)
+        .post('/api/cuenta/deposito')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 1 })
+        .expect(HTTP_STATUS.CREATED);
+
+      expect(response.body.data.cuenta.saldo).toBe(500001);
+      expect(response.body.data.movimiento.saldoAnteriorDestino).toBe(500000);
+      expect(response.body.data.movimiento.saldoPosteriorDestino).toBe(500001);
+    });
+
+    test('Retiro del saldo completo deja el saldo en 0', async () => {
+      const response = await request(app)
+        .post('/api/cuenta/retiro')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 500000 })
+        .expect(HTTP_STATUS.CREATED);
+
+      expect(response.body.data.cuenta.saldo).toBe(0);
+      expect(response.body.data.movimiento.saldoAnteriorOrigen).toBe(500000);
+      expect(response.body.data.movimiento.saldoPosteriorOrigen).toBe(0);
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(0);
+    });
+  });
+
+  describe('Transferencia - identificadores equivalentes de la misma cuenta', () => {
+    test('Rechaza transferencia a la misma cuenta referida por ObjectId y por número de cuenta', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const response = await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({
+          cuentaOrigenId: cuenta1._id.toString(),
+          cuentaDestinoId: cuenta1.numeroCuenta,
+          monto: 100000,
+        })
+        .expect(HTTP_STATUS.BAD_REQUEST);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe(ERROR_MESSAGES.SAME_ACCOUNT_TRANSFER);
+    });
+
+    test('Rechaza transferencia a la misma cuenta referida por número de cuenta y ObjectId (orden inverso)', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const response = await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({
+          cuentaOrigenId: cuenta1.numeroCuenta,
+          cuentaDestinoId: cuenta1._id.toString(),
+          monto: 100000,
+        })
+        .expect(HTTP_STATUS.BAD_REQUEST);
+
+      expect(response.body.error).toBe(ERROR_MESSAGES.SAME_ACCOUNT_TRANSFER);
+    });
+
+    test('Acepta transferencia usando números de cuenta como identificadores', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const response = await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({
+          cuentaOrigenId: cuenta2.numeroCuenta,
+          cuentaDestinoId: cuenta3.numeroCuenta,
+          monto: 300000,
+        })
+        .expect(HTTP_STATUS.CREATED);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.cuentaOrigen.numeroCuenta).toBe('PE0010000002');
+      expect(response.body.data.cuentaOrigen.saldo).toBe(950000);
+      expect(response.body.data.cuentaDestino.numeroCuenta).toBe('PE0010000003');
+      expect(response.body.data.cuentaDestino.saldo).toBe(375000);
+    });
+  });
+
+  describe('Concurrencia', () => {
+    test('Dos retiros simultáneos sobre la misma cuenta: solo uno puede consumir el saldo disponible', async () => {
+      // Saldo 500000; dos retiros de 300000 en paralelo: exactamente uno debe salir
+      const [r1, r2] = await Promise.all([
+        request(app).post('/api/cuenta/retiro').send({ cuentaId: cuenta1._id.toString(), monto: 300000 }),
+        request(app).post('/api/cuenta/retiro').send({ cuentaId: cuenta1._id.toString(), monto: 300000 }),
+      ]);
+
+      const exitosos = [r1, r2].filter(r => r.status === HTTP_STATUS.CREATED);
+      const fallidos = [r1, r2].filter(r => r.status === HTTP_STATUS.BAD_REQUEST);
+      expect(exitosos).toHaveLength(1);
+      expect(fallidos).toHaveLength(1);
+      expect(fallidos[0].body.code).toBe('INSUFFICIENT_FUNDS');
+
+      // El saldo no puede quedar negativo ni perder actualizaciones
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(200000);
+
+      const retiros = await Movimiento.find({ tipo: MOVEMENT_TYPES.RETIRO, cuentaOrigen: cuenta1._id });
+      expect(retiros).toHaveLength(1);
+    });
+
+    test('Dos depósitos simultáneos con referencias distintas no pierden actualizaciones', async () => {
+      const [r1, r2] = await Promise.all([
+        request(app).post('/api/cuenta/deposito').send({ cuentaId: cuenta1._id.toString(), monto: 100000 }),
+        request(app).post('/api/cuenta/deposito').send({ cuentaId: cuenta1._id.toString(), monto: 200000 }),
+      ]);
+
+      expect(r1.status).toBe(HTTP_STATUS.CREATED);
+      expect(r2.status).toBe(HTTP_STATUS.CREATED);
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(800000); // 500000 + 100000 + 200000
+    });
+
+    test('Solicitudes simultáneas con la misma referencia procesan el depósito una sola vez', async () => {
+      const referencia = 'CONC_DEP_001';
+      const [r1, r2] = await Promise.all([
+        request(app).post('/api/cuenta/deposito').send({ cuentaId: cuenta1._id.toString(), monto: 100000, referencia }),
+        request(app).post('/api/cuenta/deposito').send({ cuentaId: cuenta1._id.toString(), monto: 100000, referencia }),
+      ]);
+
+      // Exactamente una solicitud crea el recurso; la otra responde idempotente
+      const creadas = [r1, r2].filter(r => r.status === HTTP_STATUS.CREATED);
+      const idempotentes = [r1, r2].filter(r => r.status === HTTP_STATUS.OK && r.body.idempotente === true);
+      expect(creadas).toHaveLength(1);
+      expect(idempotentes).toHaveLength(1);
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(600000); // solo un depósito aplicado
+
+      const movimientos = await Movimiento.countDocuments({ referencia });
+      expect(movimientos).toBe(1);
+    });
+
+    test('Solicitudes simultáneas con la misma referencia procesan el retiro una sola vez', async () => {
+      const referencia = 'CONC_RET_001';
+      const [r1, r2] = await Promise.all([
+        request(app).post('/api/cuenta/retiro').send({ cuentaId: cuenta1._id.toString(), monto: 50000, referencia }),
+        request(app).post('/api/cuenta/retiro').send({ cuentaId: cuenta1._id.toString(), monto: 50000, referencia }),
+      ]);
+
+      const creadas = [r1, r2].filter(r => r.status === HTTP_STATUS.CREATED);
+      const idempotentes = [r1, r2].filter(r => r.status === HTTP_STATUS.OK && r.body.idempotente === true);
+      expect(creadas).toHaveLength(1);
+      expect(idempotentes).toHaveLength(1);
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(450000); // solo un retiro aplicado
+
+      const movimientos = await Movimiento.countDocuments({ referencia });
+      expect(movimientos).toBe(1);
+    });
+
+    test('Transferencias simultáneas en direcciones opuestas conservan el dinero total', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const totalInicial = (await Cuenta.find({ activa: true })).reduce((s, c) => s + c.saldo, 0);
+
+      const [r1, r2] = await Promise.all([
+        request(app).post('/api/cuenta/transferencia')
+          .send({ cuentaOrigenId: cuenta1._id.toString(), cuentaDestinoId: cuenta2._id.toString(), monto: 100000 }),
+        request(app).post('/api/cuenta/transferencia')
+          .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta1._id.toString(), monto: 100000 }),
+      ]);
+
+      expect(r1.status).toBe(HTTP_STATUS.CREATED);
+      expect(r2.status).toBe(HTTP_STATUS.CREATED);
+
+      // Sin pérdida de actualizaciones: cada cuenta queda con su saldo original
+      const c1 = await Cuenta.findById(cuenta1._id);
+      const c2 = await Cuenta.findById(cuenta2._id);
+      expect(c1.saldo).toBe(500000);
+      expect(c2.saldo).toBe(1250000);
+
+      const totalFinal = (await Cuenta.find({ activa: true })).reduce((s, c) => s + c.saldo, 0);
+      expect(totalFinal).toBe(totalInicial);
+    });
+
+    test('Transferencias simultáneas sobre los mismos fondos no producen sobregiro', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      // c2 tiene 1250000; tres transferencias de 500000 en paralelo: solo dos pueden salir
+      const [r1, r2, r3] = await Promise.all([
+        request(app).post('/api/cuenta/transferencia')
+          .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 500000 }),
+        request(app).post('/api/cuenta/transferencia')
+          .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 500000 }),
+        request(app).post('/api/cuenta/transferencia')
+          .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 500000 }),
+      ]);
+
+      const exitosas = [r1, r2, r3].filter(r => r.status === HTTP_STATUS.CREATED);
+      const fallidas = [r1, r2, r3].filter(r => r.status === HTTP_STATUS.BAD_REQUEST);
+      expect(exitosas).toHaveLength(2);
+      expect(fallidas).toHaveLength(1);
+      expect(fallidas[0].body.code).toBe('INSUFFICIENT_FUNDS');
+
+      const c2 = await Cuenta.findById(cuenta2._id);
+      expect(c2.saldo).toBe(250000);
+
+      // El dinero total del sistema se conserva
+      const total = (await Cuenta.find({})).reduce((s, c) => s + c.saldo, 0);
+      expect(total).toBe(1825000); // 500000 + 250000 + 1075000
+    });
+  });
+
+  describe('Idempotencia - conflictos por reutilización de referencia', () => {
+    test('Depósito: reutilizar la referencia con un monto distinto → 409', async () => {
+      const referencia = 'CONFL_DEP_001';
+
+      await request(app)
+        .post('/api/cuenta/deposito')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 50000, referencia })
+        .expect(HTTP_STATUS.CREATED);
+
+      const response = await request(app)
+        .post('/api/cuenta/deposito')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 60000, referencia })
+        .expect(HTTP_STATUS.CONFLICT);
+
+      expect(response.body.code).toBe('REFERENCE_CONFLICT');
+
+      // El saldo no cambió por la solicitud conflictuada
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(550000);
+    });
+
+    test('Depósito: reutilizar la referencia de un retiro → 409', async () => {
+      const referencia = 'CONFL_MIXTA_001';
+
+      await request(app)
+        .post('/api/cuenta/retiro')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 20000, referencia })
+        .expect(HTTP_STATUS.CREATED);
+
+      const response = await request(app)
+        .post('/api/cuenta/deposito')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 20000, referencia })
+        .expect(HTTP_STATUS.CONFLICT);
+
+      expect(response.body.code).toBe('REFERENCE_CONFLICT');
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(480000); // solo el retiro aplicado
+    });
+
+    test('Retiro: reutilizar la referencia con un monto distinto → 409', async () => {
+      const referencia = 'CONFL_RET_001';
+
+      await request(app)
+        .post('/api/cuenta/retiro')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 30000, referencia })
+        .expect(HTTP_STATUS.CREATED);
+
+      const response = await request(app)
+        .post('/api/cuenta/retiro')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 40000, referencia })
+        .expect(HTTP_STATUS.CONFLICT);
+
+      expect(response.body.code).toBe('REFERENCE_CONFLICT');
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(470000);
+    });
+
+    test('Transferencia: la repetición con la referencia original encuentra los movimientos _OUT/_IN', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const referencia = 'TRF_SUFIX_001';
+      const cuerpo = {
+        cuentaOrigenId: cuenta2._id.toString(),
+        cuentaDestinoId: cuenta3._id.toString(),
+        monto: 200000,
+        referencia,
+      };
+
+      await request(app).post('/api/cuenta/transferencia').send(cuerpo).expect(HTTP_STATUS.CREATED);
+
+      // Los movimientos se almacenan con las referencias con sufijo
+      const conSufijo = await Movimiento.find({ referencia: { $in: ['TRF_SUFIX_001_OUT', 'TRF_SUFIX_001_IN'] } });
+      expect(conSufijo).toHaveLength(2);
+
+      // La repetición con la referencia ORIGINAL (sin sufijo) es reconocida como idempotente
+      const response = await request(app).post('/api/cuenta/transferencia').send(cuerpo).expect(HTTP_STATUS.OK);
+
+      expect(response.body.idempotente).toBe(true);
+      expect(response.body.data.cuentaOrigen).toBeDefined();
+      expect(response.body.data.cuentaDestino).toBeDefined();
+      expect(response.body.data.movimientoEnviado).toBeDefined();
+      expect(response.body.data.movimientoRecibido).toBeDefined();
+
+      // Sin doble efecto en los saldos
+      const [origen, destino] = await Promise.all([
+        Cuenta.findById(cuenta2._id),
+        Cuenta.findById(cuenta3._id),
+      ]);
+      expect(origen.saldo).toBe(1050000);
+      expect(destino.saldo).toBe(275000);
+      expect(await Movimiento.countDocuments({ referencia: { $in: ['TRF_SUFIX_001_OUT', 'TRF_SUFIX_001_IN'] } })).toBe(2);
+    });
+
+    test('Transferencia: reutilizar la referencia con un monto distinto → 409', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const referencia = 'CONFL_TRF_001';
+      await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 100000, referencia })
+        .expect(HTTP_STATUS.CREATED);
+
+      const response = await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 150000, referencia })
+        .expect(HTTP_STATUS.CONFLICT);
+
+      expect(response.body.code).toBe('REFERENCE_CONFLICT');
+
+      const [origen, destino] = await Promise.all([
+        Cuenta.findById(cuenta2._id),
+        Cuenta.findById(cuenta3._id),
+      ]);
+      expect(origen.saldo).toBe(1150000);
+      expect(destino.saldo).toBe(175000);
+    });
+
+    test('Transferencia: reutilizar la referencia hacia otra cuenta destino → 409', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const referencia = 'CONFL_TRF_002';
+      await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 100000, referencia })
+        .expect(HTTP_STATUS.CREATED);
+
+      const response = await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta1._id.toString(), monto: 100000, referencia })
+        .expect(HTTP_STATUS.CONFLICT);
+
+      expect(response.body.code).toBe('REFERENCE_CONFLICT');
+
+      // Solo se aplicó la primera transferencia
+      const c1 = await Cuenta.findById(cuenta1._id);
+      const c3 = await Cuenta.findById(cuenta3._id);
+      expect(c1.saldo).toBe(500000);
+      expect(c3.saldo).toBe(175000);
+    });
+  });
+
+  describe('Rollback ante fallos', () => {
+    test('Depósito: si falla la creación del movimiento, el saldo no cambia', async () => {
+      const spy = jest.spyOn(Movimiento, 'create').mockRejectedValueOnce(new Error('fallo simulado de BD'));
+      try {
+        const response = await request(app)
+          .post('/api/cuenta/deposito')
+          .send({ cuentaId: cuenta1._id.toString(), monto: 100000, descripcion: 'Fallo simulado' })
+          .expect(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.error).toBe('Error interno del servidor');
+      } finally {
+        spy.mockRestore();
+      }
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(500000);
+      expect(await Movimiento.countDocuments({ cuentaDestino: cuenta1._id })).toBe(0);
+    });
+
+    test('Transferencia: si falla la creación de movimientos, ambos saldos quedan intactos', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      const spy = jest.spyOn(Movimiento, 'create').mockRejectedValueOnce(new Error('fallo simulado de BD'));
+      try {
+        await request(app)
+          .post('/api/cuenta/transferencia')
+          .send({
+            cuentaOrigenId: cuenta2._id.toString(),
+            cuentaDestinoId: cuenta3._id.toString(),
+            monto: 200000,
+          })
+          .expect(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      } finally {
+        spy.mockRestore();
+      }
+
+      const [origen, destino] = await Promise.all([
+        Cuenta.findById(cuenta2._id),
+        Cuenta.findById(cuenta3._id),
+      ]);
+      expect(origen.saldo).toBe(1250000);
+      expect(destino.saldo).toBe(75000);
+      expect(await Movimiento.countDocuments({})).toBe(0);
+    });
+  });
+
+  describe('Consistencia del historial y los saldos', () => {
+    test('Los saldos anterior/posterior de los movimientos forman una cadena coherente con el saldo de la cuenta', async () => {
+      await request(app)
+        .post('/api/cuenta/deposito')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 100000 })
+        .expect(HTTP_STATUS.CREATED);
+
+      await request(app)
+        .post('/api/cuenta/retiro')
+        .send({ cuentaId: cuenta1._id.toString(), monto: 30000 })
+        .expect(HTTP_STATUS.CREATED);
+
+      const cuentaActualizada = await Cuenta.findById(cuenta1._id);
+      expect(cuentaActualizada.saldo).toBe(570000);
+
+      const depositos = await Movimiento.find({ tipo: MOVEMENT_TYPES.DEPOSITO, cuentaDestino: cuenta1._id });
+      const retiros = await Movimiento.find({ tipo: MOVEMENT_TYPES.RETIRO, cuentaOrigen: cuenta1._id });
+      expect(depositos).toHaveLength(1);
+      expect(retiros).toHaveLength(1);
+
+      // Depósito: 500000 → 600000
+      expect(depositos[0].saldoAnteriorDestino).toBe(500000);
+      expect(depositos[0].saldoPosteriorDestino).toBe(600000);
+
+      // Retiro: parte del saldo posterior al depósito → 570000
+      expect(retiros[0].saldoAnteriorOrigen).toBe(600000);
+      expect(retiros[0].saldoPosteriorOrigen).toBe(570000);
+      expect(retiros[0].saldoPosteriorOrigen).toBe(cuentaActualizada.saldo);
+    });
+
+    test('Los movimientos de transferencia registran saldos anterior y posterior de ambas cuentas', async () => {
+      if (!transactionsSupported) {
+        console.log('  ⏭ Test omitido: replica set no configurado');
+        return;
+      }
+
+      await request(app)
+        .post('/api/cuenta/transferencia')
+        .send({ cuentaOrigenId: cuenta2._id.toString(), cuentaDestinoId: cuenta3._id.toString(), monto: 200000 })
+        .expect(HTTP_STATUS.CREATED);
+
+      const movOut = await Movimiento.findOne({ tipo: MOVEMENT_TYPES.TRANSFERENCIA_ENVIADA });
+      const movIn = await Movimiento.findOne({ tipo: MOVEMENT_TYPES.TRANSFERENCIA_RECIBIDA });
+
+      expect(movOut.saldoAnteriorOrigen).toBe(1250000);
+      expect(movOut.saldoPosteriorOrigen).toBe(1050000);
+      expect(movOut.saldoAnteriorDestino).toBe(75000);
+      expect(movOut.saldoPosteriorDestino).toBe(275000);
+
+      expect(movIn.saldoAnteriorOrigen).toBe(1250000);
+      expect(movIn.saldoPosteriorOrigen).toBe(1050000);
+      expect(movIn.saldoAnteriorDestino).toBe(75000);
+      expect(movIn.saldoPosteriorDestino).toBe(275000);
+
+      // El saldo vigente de cada cuenta coincide con el saldo posterior registrado
+      const [origen, destino] = await Promise.all([
+        Cuenta.findById(cuenta2._id),
+        Cuenta.findById(cuenta3._id),
+      ]);
+      expect(origen.saldo).toBe(movIn.saldoPosteriorOrigen);
+      expect(destino.saldo).toBe(movIn.saldoPosteriorDestino);
     });
   });
 });

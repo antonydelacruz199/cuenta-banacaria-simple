@@ -19,6 +19,11 @@ export function FormOperacion({
   const [montoValido, setMontoValido] = useState(false);
   const [enviando, setEnviando] = useState(false);
 
+  // Identificadores HTML únicos por instancia (existen tres formularios en la página)
+  const idMonto = `${tipo}-monto`;
+  const idDescripcion = `${tipo}-descripcion`;
+  const idCuentaDestino = `${tipo}-cuenta-destino`;
+
   // Validar monto en tiempo real
   useEffect(() => {
     const centimos = parsearMoneda(monto);
@@ -57,13 +62,21 @@ export function FormOperacion({
     
     try {
       const referencia = generarReferencia(tipo.toUpperCase().substring(0, 3));
-      
+
       if (tipo === 'deposito') {
         await onSubmit(cuentaActualId, centimos, descripcion, referencia);
       } else if (tipo === 'retiro') {
         await onSubmit(cuentaActualId, centimos, descripcion, referencia);
       } else if (tipo === 'transferencia') {
         await onSubmit(cuentaActualId, cuentaDestino, centimos, descripcion, referencia);
+      }
+
+      // Operación exitosa: limpiar el formulario para evitar reenvíos accidentales
+      // de la misma operación (cada envío genera una referencia nueva)
+      setMonto('');
+      setDescripcion('');
+      if (tipo === 'transferencia') {
+        setCuentaDestino('');
       }
     } catch (err) {
       setError(err.message || 'Error en la operación');
@@ -90,9 +103,9 @@ export function FormOperacion({
       <form onSubmit={manejarSubmit} className="space-y-4">
         {tipo === 'transferencia' && (
           <div>
-            <label htmlFor="cuentaDestino" className="label">Cuenta de Destino</label>
+            <label htmlFor={idCuentaDestino} className="label">Cuenta de Destino</label>
             <select
-              id="cuentaDestino"
+              id={idCuentaDestino}
               value={cuentaDestino}
               onChange={(e) => setCuentaDestino(e.target.value)}
               className="input"
@@ -113,11 +126,11 @@ export function FormOperacion({
         )}
 
         <div>
-          <label htmlFor="monto" className="label">Monto (PEN)</label>
+          <label htmlFor={idMonto} className="label">Monto (PEN)</label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg font-medium">S/</span>
             <input
-              id="monto"
+              id={idMonto}
               type="text"
               value={monto}
               onChange={manejarMontoChange}
@@ -133,10 +146,13 @@ export function FormOperacion({
               disabled={loading || enviando || deshabilitado}
               required
               autoComplete="off"
+              inputMode="decimal"
+              aria-invalid={!montoValido && !!monto}
+              aria-describedby={!montoValido && monto ? `${idMonto}-error` : undefined}
             />
           </div>
           {!montoValido && monto && (
-            <p className="mt-1 text-sm text-danger-600 flex items-center gap-1">
+            <p id={`${idMonto}-error`} className="mt-1 text-sm text-danger-600 flex items-center gap-1">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
               </svg>
@@ -146,9 +162,9 @@ export function FormOperacion({
         </div>
 
         <div>
-          <label htmlFor="descripcion" className="label">Descripción (opcional)</label>
+          <label htmlFor={idDescripcion} className="label">Descripción (opcional)</label>
           <textarea
-            id="descripcion"
+            id={idDescripcion}
             value={descripcion}
             onChange={(e) => setDescripcion(e.target.value)}
             rows={2}

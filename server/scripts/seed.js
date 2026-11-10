@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { pathToFileURL } from 'node:url';
 import { connectDB, disconnectDB, areTransactionsSupported } from '../src/config/database.js';
 import Cuenta from '../src/models/Cuenta.js';
 import Movimiento from '../src/models/Movimiento.js';
@@ -177,12 +178,12 @@ const seed = async () => {
     
     console.log('\n✨ Seed completado exitosamente');
     console.log('\n📋 Cuentas de prueba disponibles:');
-    console.log('   PE0010000001 - María González López - S/ 4,500.00');
-    console.log('   PE0010000002 - Carlos Rodríguez Pérez - S/ 11,500.00');
-    console.log('   PE0010000003 - Ana Martínez Silva - S/ 1,750.00');
+    console.log('   PE0010000001 - María González López - S/ 5,000.00');
+    console.log('   PE0010000002 - Carlos Rodríguez Pérez - S/ 12,500.00');
+    console.log('   PE0010000003 - Ana Martínez Silva - S/ 750.00');
     console.log('   PE0010000004 - Juan Pedro Fernández - S/ 25,000.00');
     console.log('   PE0010000005 - Laura Torres Vargas - S/ 0.00');
-    
+
   } catch (error) {
     console.error('\n✗ Error en seed:', error.message);
     if (error.code === 11000) {
@@ -194,8 +195,12 @@ const seed = async () => {
   }
 };
 
-// Ejecutar si se llama directamente
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Ejecutar si se llama directamente.
+// pathToFileURL normaliza la ruta al formato file:// URL (necesario en Windows,
+// donde process.argv[1] usa barras invertidas y comparar contra import.meta.url falla)
+const esEjecucionDirecta = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (esEjecucionDirecta) {
   seed()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));

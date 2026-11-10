@@ -5,8 +5,17 @@ import { FormOperacion } from '../components/FormOperacion';
 import { HistorialTransacciones } from '../components/HistorialTransacciones';
 import { SelectorCuenta } from '../components/SelectorCuenta';
 import { useCuenta, useHistorial, useOperacion } from '../hooks/useCuenta';
-import { api, ApiError } from '../services/api';
-import { formatearMoneda, generarReferencia } from '../utils/formatters';
+import { api } from '../services/api';
+
+// Números de cuenta disponibles en la base de desarrollo (seed).
+// La carga se centraliza en el servicio API; ningún componente hace fetch directo.
+const NUMEROS_CUENTA = [
+  'PE0010000001',
+  'PE0010000002',
+  'PE0010000003',
+  'PE0010000004',
+  'PE0010000005',
+];
 
 export function Dashboard() {
   const [cuentaId, setCuentaId] = useState(null);
@@ -15,62 +24,52 @@ export function Dashboard() {
   const [errorCuentas, setErrorCuentas] = useState(null);
   const [paginaHistorial, setPaginaHistorial] = useState(1);
 
-  const { cuenta, loading: loadingCuenta, error: errorCuenta, recargar: recargarCuenta, actualizarSaldo } = useCuenta(cuentaId);
-  const { 
-    movimientos, 
-    paginacion, 
-    loading: loadingHistorial, 
-    error: errorHistorial, 
-    recargar: recargarHistorial 
+  const { cuenta, loading: loadingCuenta, error: errorCuenta, recargar: recargarCuenta } = useCuenta(cuentaId);
+  const {
+    movimientos,
+    paginacion,
+    loading: loadingHistorial,
+    loadingMore,
+    error: errorHistorial,
+    recargar: recargarHistorial,
   } = useHistorial(cuentaId, paginaHistorial);
-  const { 
-    loading: loadingOperacion, 
-    error: errorOperacion, 
-    success: successOperacion, 
+  const {
+    loading: loadingOperacion,
+    error: errorOperacion,
+    success: successOperacion,
     ejecutar: ejecutarOperacion,
-    limpiar: limpiarOperacion 
+    limpiar: limpiarOperacion,
   } = useOperacion();
 
-  // Cargar lista de cuentas al montar
+  // Cargar lista de cuentas al montar (solo lectura)
   useEffect(() => {
+    let montado = true;
     const cargarCuentas = async () => {
       try {
         setCargandoCuentas(true);
-        // Obtener cuentas desde una cuenta conocida o endpoint de lista
-        // Por ahora, usamos las cuentas del seed conocidas
-        // En una app real, habría un endpoint GET /api/cuentas
-        const response = await fetch('/api/cuenta/PE0010000001');
-        if (response.ok) {
-          const data = await response.json();
-          // Simular lista de cuentas conocida
-          setCuentas([
-            { _id: data.data.id, numeroCuenta: data.data.numeroCuenta, titular: data.data.titular, saldo: data.data.saldo },
-          ]);
-          
-          // Intentar obtener las otras cuentas
-          const ids = ['PE0010000002', 'PE0010000003', 'PE0010000004', 'PE0010000005'];
-          const cuentasPromises = ids.map(id => 
-            fetch(`/api/cuenta/${id}`).then(r => r.ok ? r.json() : null).catch(() => null)
-          );
-          const resultados = await Promise.all(cuentasPromises);
-          resultados.forEach(r => {
-            if (r && r.success && r.data) {
-              setCuentas(prev => [...prev, { 
-                _id: r.data.id, 
-                numeroCuenta: r.data.numeroCuenta, 
-                titular: r.data.titular, 
-                saldo: r.data.saldo 
-              }]);
-            }
-          });
+        setErrorCuentas(null);
+        // Las cuentas inactivas o inexistentes responden con error y se excluyen
+        const resultados = await Promise.all(
+          NUMEROS_CUENTA.map(numero => api.getCuenta(numero).then(r => r.data).catch(() => null))
+        );
+        if (!montado) return;
+        const disponibles = resultados
+          .filter(Boolean)
+          .map(c => ({ _id: c.id, numeroCuenta: c.numeroCuenta, titular: c.titular, saldo: c.saldo }));
+        setCuentas(disponibles);
+        if (disponibles.length === 0) {
+          setErrorCuentas('No se pudieron cargar las cuentas. Verifique que el backend y MongoDB estén en ejecución.');
         }
-      } catch (err) {
-        setErrorCuentas('Error al cargar la lista de cuentas');
+      } catch {
+        if (montado) {
+          setErrorCuentas('Error al cargar la lista de cuentas');
+        }
       } finally {
-        setCargandoCuentas(false);
+        if (montado) setCargandoCuentas(false);
       }
     };
     cargarCuentas();
+    return () => { montado = false; };
   }, []);
 
   // Seleccionar primera cuenta disponible
@@ -80,35 +79,47 @@ export function Dashboard() {
     }
   }, [cuentas, cuentaId]);
 
-  // Recargar cuenta e historial tras operación exitosa
+  // Recargar cuenta e historial tras operación exitosa.
+  // Si la página del historial no es 1, volver a la página 1 recarga y descarta
+  // la lista acumulada; si ya está en 1, se recarga explícitamente.
   useEffect(() => {
     if (successOperacion && cuentaId) {
       recargarCuenta();
-      recargarHistorial(1);
-      setPaginaHistorial(1);
+      if (paginaHistorial !== 1) {
+        setPaginaHistorial(1);
+      } else {
+        recargarHistorial(1);
+      }
       limpiarOperacion();
     }
-  }, [successOperacion, cuentaId, recargarCuenta, recargarHistorial, limpiarOperacion]);
+  }, [successOperacion, cuentaId, paginaHistorial, recargarCuenta, recargarHistorial, limpiarOperacion]);
 
-  // Actualizar lista de cuentas local cuando cambia el saldo
+  // Actualizar lista de cuentas local cuando cambia el saldo de la cuenta actual
   useEffect(() => {
     if (cuenta) {
-      setCuentas(prev => prev.map(c => 
+      setCuentas(prev => prev.map(c =>
         c._id === cuenta.id ? { ...c, saldo: cuenta.saldo } : c
       ));
     }
   }, [cuenta]);
 
-  const manejarDeposito = async (cuentaId, monto, descripcion, referencia) => {
+  const manejarDeposito = (cuentaId, monto, descripcion, referencia) => {
     return ejecutarOperacion(api.deposito, cuentaId, monto, descripcion, referencia);
   };
 
-  const manejarRetiro = async (cuentaId, monto, descripcion, referencia) => {
+  const manejarRetiro = (cuentaId, monto, descripcion, referencia) => {
     return ejecutarOperacion(api.retiro, cuentaId, monto, descripcion, referencia);
   };
 
   const manejarTransferencia = async (cuentaOrigenId, cuentaDestinoId, monto, descripcion, referencia) => {
-    return ejecutarOperacion(api.transferencia, cuentaOrigenId, cuentaDestinoId, monto, descripcion, referencia);
+    const resultado = await ejecutarOperacion(api.transferencia, cuentaOrigenId, cuentaDestinoId, monto, descripcion, referencia);
+    // La cuenta destino también cambió: sincronizar su saldo en la lista local
+    // con lo devuelto por el backend (solo se llega aquí si la operación fue exitosa)
+    if (resultado?.data?.cuentaDestino) {
+      const destino = resultado.data.cuentaDestino;
+      setCuentas(prev => prev.map(c => c._id === destino.id ? { ...c, saldo: destino.saldo } : c));
+    }
+    return resultado;
   };
 
   const manejarCambioCuenta = useCallback((nuevaCuentaId) => {
@@ -118,7 +129,7 @@ export function Dashboard() {
   }, [limpiarOperacion]);
 
   const cargarMasHistorial = () => {
-    if (paginacion.hayMas && !loadingHistorial) {
+    if (paginacion.hayMas && !loadingHistorial && !loadingMore) {
       setPaginaHistorial(p => p + 1);
     }
   };
@@ -126,7 +137,7 @@ export function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Selector de cuenta */}
         <div className="mb-6">
@@ -143,10 +154,10 @@ export function Dashboard() {
 
         {/* Saldo y datos de la cuenta */}
         <div className="mb-6">
-          <SaldoCard 
-            cuenta={cuenta} 
-            loading={loadingCuenta} 
-            error={errorCuenta} 
+          <SaldoCard
+            cuenta={cuenta}
+            loading={loadingCuenta}
+            error={errorCuenta}
           />
         </div>
 
@@ -168,7 +179,7 @@ export function Dashboard() {
             cuentaActualId={cuentaId}
             deshabilitado={!cuentaId || loadingOperacion}
           />
-          
+
           <FormOperacion
             tipo="retiro"
             titulo="Retirar Fondos"
@@ -184,7 +195,7 @@ export function Dashboard() {
             cuentaActualId={cuentaId}
             deshabilitado={!cuentaId || loadingOperacion}
           />
-          
+
           <FormOperacion
             tipo="transferencia"
             titulo="Transferir Fondos"
@@ -236,7 +247,7 @@ export function Dashboard() {
           empty={movimientos.length === 0 && !loadingHistorial && !errorHistorial}
           onLoadMore={cargarMasHistorial}
           hasMore={paginacion.hayMas}
-          loadingMore={loadingHistorial && paginaHistorial > 1}
+          loadingMore={loadingMore}
         />
       </main>
 

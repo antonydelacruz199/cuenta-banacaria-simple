@@ -11,10 +11,14 @@ export function SelectorCuenta({ cuentas, cuentaActualId, onChange, loading }) {
       <button
         type="button"
         onClick={() => setAbierto(!abierto)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setAbierto(false);
+        }}
         className="w-full btn btn-secondary justify-between"
         disabled={loading}
         aria-haspopup="listbox"
         aria-expanded={abierto}
+        aria-label="Seleccionar cuenta bancaria"
       >
         <span className="text-left flex-1">
           {cuentaActual ? (
@@ -36,6 +40,9 @@ export function SelectorCuenta({ cuentas, cuentaActualId, onChange, loading }) {
           <div className="fixed inset-0 z-10" onClick={() => setAbierto(false)} aria-hidden="true" />
           <div className="absolute z-20 w-full mt-1 card-elevated rounded-lg shadow-lg border border-gray-200 animate-fade-in">
             <div className="p-2 max-h-60 overflow-y-auto">
+              {cuentas.length === 0 && (
+                <p className="px-4 py-3 text-sm text-gray-500">No hay cuentas disponibles</p>
+              )}
               {cuentas.map(cuenta => (
                 <button
                   key={cuenta._id}
